@@ -1,0 +1,22 @@
+{
+  "name": "github-app-credential-test",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Verify GitHub App / GitHub Enterprise App credentials (app id, private key, installation)",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.ts",
+    "check": "node --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jose": "^6.0.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}
