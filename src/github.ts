@@ -226,7 +226,7 @@ export async function listInstallationRepos(
   for (let page = 1; page <= 1000; page += 1) {
     const {data} = await apiRequest<InstallationRepos>(
       endpoint,
-      `/installation/repos?per_page=100&page=${page}`,
+      `/installation/repositories?per_page=100&page=${page}`,
       {token},
     );
     totalCount = data.total_count;

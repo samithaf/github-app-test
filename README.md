@@ -9,7 +9,7 @@ It verifies, in order:
 3. `GET /app` - the app id and the private key are a matching pair
 4. `GET /app/installations[/{id}]` - the installation exists
 5. `POST /app/installations/{id}/access_tokens` - an installation token can be minted
-6. `GET /installation/repos` - the token works, and every accessible repository is listed (all pages are fetched)
+6. `GET /installation/repositories` - the token works, and every accessible repository is listed (all pages are fetched)
 
 ## Requirements
 

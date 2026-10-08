@@ -281,7 +281,7 @@ async function main(): Promise<number> {
     return finish(config, results, failed);
   }
 
-  await step('use installation token (GET /installation/repos)', async () => {
+  await step('use installation token (GET /installation/repositories)', async () => {
     const {repositories, totalCount} = await listInstallationRepos(config, token.value);
     const listed = repositories.length !== totalCount ? ` (${repositories.length} listed)` : '';
     return {
