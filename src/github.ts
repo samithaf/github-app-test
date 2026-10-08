@@ -2,11 +2,11 @@
  * @fileoverview Minimal GitHub REST client for authenticating as a GitHub App.
  */
 
-import {createPrivateKey} from 'node:crypto';
+import { createPrivateKey } from 'node:crypto';
 
-import {SignJWT} from 'jose';
+import { SignJWT } from 'jose';
 
-import {errorMessage, systemErrorCode} from './errors.ts';
+import { errorMessage, systemErrorCode } from './errors.ts';
 
 /** The newest REST API version published by GitHub. */
 export const DEFAULT_API_VERSION = '2026-03-10';
@@ -90,7 +90,7 @@ export interface InstallationToken {
 /** One page of `GET /installation/repositories`. */
 interface InstallationRepos {
   total_count: number;
-  repositories: Array<{full_name: string}>;
+  repositories: Array<{ full_name: string }>;
 }
 
 /** The decoded body of a successful API call. */
@@ -128,7 +128,7 @@ export async function createAppJwt(
   const key = createPrivateKey(privateKeyPem.trim());
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({})
-    .setProtectedHeader({alg: 'RS256', typ: 'JWT'})
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
     .setIssuedAt(now - 60)
     .setExpirationTime(now + ttlSeconds)
     .setIssuer(appId)
@@ -156,7 +156,10 @@ function apiDocumentationUrl(payload: unknown): string | undefined {
   if (typeof payload !== 'object' || payload === null) {
     return undefined;
   }
-  if ('documentation_url' in payload && typeof payload.documentation_url === 'string') {
+  if (
+    'documentation_url' in payload &&
+    typeof payload.documentation_url === 'string'
+  ) {
     return payload.documentation_url;
   }
   return undefined;
@@ -170,13 +173,13 @@ function apiDocumentationUrl(payload: unknown): string | undefined {
 export async function apiRequest<T>(
   endpoint: ApiEndpoint,
   path: string,
-  {token, method = 'GET', body}: RequestOptions = {},
+  { token, method = 'GET', body }: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
   const headers: Record<string, string> = {
-    'Accept': 'application/vnd.github+json',
+    Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': endpoint.apiVersion,
-    ...(token === undefined ? {} : {'Authorization': `Bearer ${token}`}),
-    ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
+    ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }),
+    ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
   };
 
   let response: Response;
@@ -188,14 +191,20 @@ export async function apiRequest<T>(
       signal: AbortSignal.timeout(endpoint.timeoutMs),
     });
   } catch (error) {
-    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+    const cause =
+      error instanceof Error && error.cause instanceof Error
+        ? error.cause
+        : undefined;
     const detail = errorMessage(cause ?? error);
     const code = systemErrorCode(cause) ?? systemErrorCode(error);
-    throw new GitHubApiError(0, `request to ${path} failed: ${detail}${code ? ` (${code})` : ''}`);
+    throw new GitHubApiError(
+      0,
+      `request to ${path} failed: ${detail}${code ? ` (${code})` : ''}`,
+    );
   }
 
   const text = await response.text();
-  let parsed: unknown = undefined;
+  let parsed: unknown;
   if (text) {
     try {
       parsed = JSON.parse(text);
@@ -215,7 +224,7 @@ export async function apiRequest<T>(
   // The endpoint contract is expressed by the caller's type argument; the body
   // itself is unvalidated JSON, so no runtime check can confirm it beyond the
   // status code check above.
-  return {data: parsed as T};
+  return { data: parsed as T };
 }
 
 /**
@@ -225,8 +234,10 @@ export async function apiRequest<T>(
  * github.com, and an unauthenticated call still reports the versions a host
  * offers when the app credentials are wrong.
  */
-export async function listApiVersions(endpoint: ApiEndpoint): Promise<string[]> {
-  const {data} = await apiRequest<unknown>(endpoint, '/versions');
+export async function listApiVersions(
+  endpoint: ApiEndpoint,
+): Promise<string[]> {
+  const { data } = await apiRequest<unknown>(endpoint, '/versions');
   if (!Array.isArray(data)) {
     throw new Error('GET /versions did not return a list of API versions');
   }
@@ -246,17 +257,16 @@ export async function listInstallationRepos(
   const repositories: string[] = [];
   let totalCount = 0;
   let page = 1;
-  for (;;) {
-    const {data} = await apiRequest<InstallationRepos>(
+  do {
+    const { data } = await apiRequest<InstallationRepos>(
       endpoint,
       `/installation/repositories?per_page=100&page=${page}`,
-      {token},
+      { token },
     );
     totalCount = data.total_count;
-    repositories.push(...data.repositories.map((repository) => repository.full_name));
-    if (repositories.length >= totalCount) {
-      break;
-    }
+    repositories.push(
+      ...data.repositories.map((repository) => repository.full_name),
+    );
     page += 1;
     if (page > MAX_PAGINATION_PAGES) {
       throw new Error(
@@ -264,6 +274,6 @@ export async function listInstallationRepos(
           `(expected ${totalCount} repositories, got ${repositories.length})`,
       );
     }
-  }
-  return {repositories, totalCount};
+  } while (repositories.length < totalCount);
+  return { repositories, totalCount };
 }

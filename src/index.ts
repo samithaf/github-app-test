@@ -2,21 +2,21 @@
  * @fileoverview Checks a GitHub App credential set one step at a time.
  */
 
-import {pathToFileURL} from 'node:url';
+import { pathToFileURL } from 'node:url';
 
-import {ConfigError, loadConfig, type Config} from './config.ts';
-import {errorMessage} from './errors.ts';
+import { type Config, ConfigError, loadConfig } from './config.ts';
+import { errorMessage } from './errors.ts';
 import {
-  GitHubApiError,
-  JWT_TTL_SECONDS,
+  type AppInfo,
   accountName,
   apiRequest,
   createAppJwt,
-  listApiVersions,
-  listInstallationRepos,
-  type AppInfo,
+  GitHubApiError,
   type Installation,
   type InstallationToken,
+  JWT_TTL_SECONDS,
+  listApiVersions,
+  listInstallationRepos,
 } from './github.ts';
 
 type Status = 'ok' | 'fail' | 'warn' | 'skip';
@@ -61,7 +61,10 @@ type StepResult<T> = StepSuccess<T> | StepFailure;
 /** Formats a caught value, including HTTP details for API failures. */
 function describe(error: unknown): string {
   if (error instanceof GitHubApiError && error.status > 0) {
-    const docs = error.documentationUrl === undefined ? '' : ` (${error.documentationUrl})`;
+    const docs =
+      error.documentationUrl === undefined
+        ? ''
+        : ` (${error.documentationUrl})`;
     return `HTTP ${error.status}: ${error.message}${docs}`;
   }
   return errorMessage(error);
@@ -69,7 +72,9 @@ function describe(error: unknown): string {
 
 /** Formats a permissions map as `name=value` pairs. */
 export function formatPermissions(permissions: Record<string, string>): string {
-  const pairs = Object.entries(permissions).map(([key, value]) => `${key}=${value}`);
+  const pairs = Object.entries(permissions).map(
+    ([key, value]) => `${key}=${value}`,
+  );
   return pairs.length > 0 ? pairs.join(', ') : '(none)';
 }
 
@@ -158,31 +163,35 @@ export async function main(argv: string[]): Promise<number> {
     fn: () => Promise<StepOutput<T>>,
     options: StepOptions = {},
   ): Promise<StepResult<T>> {
-    const {hint = hintFor, required = true} = options;
+    const { hint = hintFor, required = true } = options;
     if (failed) {
-      results.push({name, status: 'skip', detail: 'skipped because a previous step failed'});
+      results.push({
+        name,
+        status: 'skip',
+        detail: 'skipped because a previous step failed',
+      });
       print(`  -   ${name} (skipped)`);
-      return {ok: false};
+      return { ok: false };
     }
     try {
-      const {detail, value, lines} = await fn();
-      results.push({name, status: 'ok', detail, lines});
+      const { detail, value, lines } = await fn();
+      results.push({ name, status: 'ok', detail, lines });
       print(`  ok  ${name}`);
       print(`        ${detail}`);
       for (const line of lines ?? []) {
         print(`        ${line}`);
       }
-      return {ok: true, value};
+      return { ok: true, value };
     } catch (error) {
       if (required) {
         failed = true;
       }
       const detail = describe(error);
-      results.push({name, status: required ? 'fail' : 'warn', detail});
+      results.push({ name, status: required ? 'fail' : 'warn', detail });
       print(`  ${required ? 'FAIL' : 'warn'} ${name}`);
       print(`        ${detail}`);
       print(`        hint: ${hint(error, config)}`);
-      return {ok: false};
+      return { ok: false };
     }
   }
 
@@ -198,9 +207,12 @@ export async function main(argv: string[]): Promise<number> {
     'create app JWT (validates private key)',
     async () => {
       const token = await createAppJwt(config.privateKeyPem, config.appId);
-      return {detail: `RS256 JWT minted, iss=${config.appId}, ttl=${JWT_TTL_SECONDS / 60}m`, value: token};
+      return {
+        detail: `RS256 JWT minted, iss=${config.appId}, ttl=${JWT_TTL_SECONDS / 60}m`,
+        value: token,
+      };
     },
-    {hint: jwtHint},
+    { hint: jwtHint },
   );
   if (!jwt.ok) {
     return finish(config, results, failed, jsonOutput);
@@ -221,13 +233,13 @@ export async function main(argv: string[]): Promise<number> {
         value: versions,
       };
     },
-    {required: false, hint: versionsHint},
+    { required: false, hint: versionsHint },
   );
 
   const app = await step(
     'authenticate app (GET /app)',
     async () => {
-      const {data} = await apiRequest<AppInfo>(config, '/app', {
+      const { data } = await apiRequest<AppInfo>(config, '/app', {
         token: jwt.value,
       });
       return {
@@ -235,7 +247,7 @@ export async function main(argv: string[]): Promise<number> {
         value: data.id,
       };
     },
-    {hint: appHint},
+    { hint: appHint },
   );
   if (!app.ok) {
     return finish(config, results, failed, jsonOutput);
@@ -243,28 +255,34 @@ export async function main(argv: string[]): Promise<number> {
 
   const installation = await step('resolve installation', async () => {
     if (config.installationId) {
-      const {data} = await apiRequest<Installation>(
+      const { data } = await apiRequest<Installation>(
         config,
         `/app/installations/${config.installationId}`,
-        {token: jwt.value},
+        { token: jwt.value },
       );
       return {
         detail: `${describeInstallation(data)} (from GITHUB_INSTALLATION_ID)`,
         value: data.id,
       };
     }
-    const {data} = await apiRequest<{installations: Installation[]}>(
+    const { data } = await apiRequest<{ installations: Installation[] }>(
       config,
       '/app/installations?per_page=100',
-      {token: jwt.value},
+      { token: jwt.value },
     );
     const installations = data.installations ?? [];
     const [chosen, ...remaining] = installations;
     if (chosen === undefined) {
-      throw new GitHubApiError(404, 'the app has no installations on this host');
+      throw new GitHubApiError(
+        404,
+        'the app has no installations on this host',
+      );
     }
-    const others = remaining.map((entry) => `${entry.id}@${accountName(entry.account)}`);
-    const suffix = others.length > 0 ? ` (other installations: ${others.join(', ')})` : '';
+    const others = remaining.map(
+      (entry) => `${entry.id}@${accountName(entry.account)}`,
+    );
+    const suffix =
+      others.length > 0 ? ` (other installations: ${others.join(', ')})` : '';
     return {
       detail: `${describeInstallation(chosen)}${suffix} - set GITHUB_INSTALLATION_ID to pick another`,
       value: chosen.id,
@@ -275,10 +293,10 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const token = await step('mint installation token', async () => {
-    const {data} = await apiRequest<InstallationToken>(
+    const { data } = await apiRequest<InstallationToken>(
       config,
       `/app/installations/${installation.value}/access_tokens`,
-      {token: jwt.value, method: 'POST'},
+      { token: jwt.value, method: 'POST' },
     );
     return {
       detail: `token expires ${data.expires_at}, selection=${data.repository_selection}, perms: ${formatPermissions(data.permissions)}`,
@@ -289,15 +307,24 @@ export async function main(argv: string[]): Promise<number> {
     return finish(config, results, failed, jsonOutput);
   }
 
-  await step('use installation token (GET /installation/repositories)', async () => {
-    const {repositories, totalCount} = await listInstallationRepos(config, token.value);
-    const listed = repositories.length !== totalCount ? ` (${repositories.length} listed)` : '';
-    return {
-      detail: `${totalCount} repositories visible${listed}`,
-      lines: repositories,
-      value: repositories.length,
-    };
-  });
+  await step(
+    'use installation token (GET /installation/repositories)',
+    async () => {
+      const { repositories, totalCount } = await listInstallationRepos(
+        config,
+        token.value,
+      );
+      const listed =
+        repositories.length !== totalCount
+          ? ` (${repositories.length} listed)`
+          : '';
+      return {
+        detail: `${totalCount} repositories visible${listed}`,
+        lines: repositories,
+        value: repositories.length,
+      };
+    },
+  );
 
   return finish(config, results, failed, jsonOutput);
 }
@@ -339,7 +366,8 @@ export function finish(
 }
 
 const isEntryPoint =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   process.exitCode = await main(process.argv);
 }

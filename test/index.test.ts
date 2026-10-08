@@ -2,17 +2,16 @@
  * @fileoverview Tests for hint selection and the end-to-end CLI flow.
  */
 
-import {generateKeyPairSync} from 'node:crypto';
-import {createServer, type Server} from 'node:http';
-import {type AddressInfo} from 'node:net';
-import {afterEach, describe, it} from 'node:test';
-import {ok, strictEqual} from 'node:assert/strict';
-
-import {ConfigError} from '../src/config.ts';
-import {GitHubApiError} from '../src/github.ts';
-import {appHint, finish, hintFor, main, versionsHint} from '../src/index.ts';
-import type {Config} from '../src/config.ts';
-import type {CheckResult} from '../src/index.ts';
+import { ok, strictEqual } from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterEach, describe, it } from 'node:test';
+import type { Config } from '../src/config.ts';
+import { ConfigError } from '../src/config.ts';
+import { GitHubApiError } from '../src/github.ts';
+import type { CheckResult } from '../src/index.ts';
+import { appHint, finish, hintFor, main, versionsHint } from '../src/index.ts';
 
 const CONFIG: Config = {
   host: 'github.acme.com',
@@ -48,7 +47,11 @@ describe('hintFor', () => {
 
   it('matches step-specific 404 hints before the generic one', () => {
     ok(appHint(apiError(404), CONFIG).includes('not a recognised pair'));
-    ok(versionsHint(apiError(404), CONFIG).includes('does not expose GET /versions'));
+    ok(
+      versionsHint(apiError(404), CONFIG).includes(
+        'does not expose GET /versions',
+      ),
+    );
   });
 });
 
@@ -77,8 +80,8 @@ describe('finish', () => {
 
   it('counts warnings in the human summary', () => {
     const results: CheckResult[] = [
-      {name: 'versions', status: 'warn', detail: 'x'},
-      {name: 'app', status: 'ok', detail: 'y'},
+      { name: 'versions', status: 'warn', detail: 'x' },
+      { name: 'app', status: 'ok', detail: 'y' },
     ];
     const logs = captureLog(() => finish(CONFIG, results, false, false));
     ok(logs.join('\n').includes('all checks passed, 1 warning'));
@@ -92,43 +95,62 @@ describe('finish', () => {
   });
 });
 
-async function startFullMock(): Promise<{baseUrl: string; close: () => Promise<void>}> {
+async function startFullMock(): Promise<{
+  baseUrl: string;
+  close: () => Promise<void>;
+}> {
   const routes: Record<string, (url: URL) => unknown> = {
     '/versions': () => ['2026-03-10', '2022-11-28'],
-    '/app': () => ({id: 123, name: 'mock-app', slug: 'mock-app', owner: {login: 'mock-org'}}),
+    '/app': () => ({
+      id: 123,
+      name: 'mock-app',
+      slug: 'mock-app',
+      owner: { login: 'mock-org' },
+    }),
     '/app/installations': () => ({
       installations: [
-        {id: 1, account: {login: 'mock-org'}, repository_selection: 'all', permissions: {contents: 'read'}},
+        {
+          id: 1,
+          account: { login: 'mock-org' },
+          repository_selection: 'all',
+          permissions: { contents: 'read' },
+        },
       ],
     }),
     '/installation/repositories': () => ({
       total_count: 1,
-      repositories: [{full_name: 'mock-org/repo-001'}],
+      repositories: [{ full_name: 'mock-org/repo-001' }],
     }),
   };
   const server: Server = createServer((req, res) => {
-    const path = new URL(String(req.url), 'http://127.0.0.1').pathname.replace(/^\/api\/v3/, '');
-    const handler = path === '/app/installations/1/access_tokens'
-      ? () => ({
-          token: 'mock-token',
-          expires_at: '2030-01-01T00:00:00Z',
-          permissions: {contents: 'read'},
-          repository_selection: 'all',
-        })
-      : routes[path];
+    const path = new URL(String(req.url), 'http://127.0.0.1').pathname.replace(
+      /^\/api\/v3/,
+      '',
+    );
+    const handler =
+      path === '/app/installations/1/access_tokens'
+        ? () => ({
+            token: 'mock-token',
+            expires_at: '2030-01-01T00:00:00Z',
+            permissions: { contents: 'read' },
+            repository_selection: 'all',
+          })
+        : routes[path];
     if (handler === undefined) {
-      res.writeHead(404, {'Content-Type': 'application/json'});
-      res.end(JSON.stringify({message: 'Not Found'}));
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Not Found' }));
       return;
     }
-    res.writeHead(200, {'Content-Type': 'application/json'});
-    res.end(JSON.stringify(handler(new URL(String(req.url), 'http://127.0.0.1'))));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify(handler(new URL(String(req.url), 'http://127.0.0.1'))),
+    );
   });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
   });
-  const {port} = server.address() as AddressInfo;
+  const { port } = server.address() as AddressInfo;
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     close: () => new Promise((resolve) => server.close(() => resolve())),
@@ -137,7 +159,7 @@ async function startFullMock(): Promise<{baseUrl: string; close: () => Promise<v
 
 describe('main end to end', () => {
   let mock: Awaited<ReturnType<typeof startFullMock>> | undefined;
-  const savedEnv = {...process.env};
+  const savedEnv = { ...process.env };
 
   afterEach(async () => {
     process.env = savedEnv;
@@ -149,12 +171,14 @@ describe('main end to end', () => {
 
   it('passes every step and reports JSON', async () => {
     mock = await startFullMock();
-    const {privateKey} = generateKeyPairSync('rsa', {modulusLength: 2048});
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     process.env = {
       ...savedEnv,
       GITHUB_APP_ID: '123',
       GITHUB_HOST: mock.baseUrl,
-      GITHUB_APP_PRIVATE_KEY: privateKey.export({type: 'pkcs8', format: 'pem'}).toString(),
+      GITHUB_APP_PRIVATE_KEY: privateKey
+        .export({ type: 'pkcs8', format: 'pem' })
+        .toString(),
     };
 
     const logs: string[] = [];
@@ -170,7 +194,12 @@ describe('main end to end', () => {
     strictEqual(code, 0);
     const report = JSON.parse(logs.join('\n'));
     strictEqual(report.ok, true);
-    const statuses = (report.checks as Array<{status: string}>).map((check) => check.status);
-    ok(statuses.every((status) => status === 'ok'), `expected all ok, got ${statuses.join(',')}`);
+    const statuses = (report.checks as Array<{ status: string }>).map(
+      (check) => check.status,
+    );
+    ok(
+      statuses.every((status) => status === 'ok'),
+      `expected all ok, got ${statuses.join(',')}`,
+    );
   });
 });

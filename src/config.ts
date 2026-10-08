@@ -2,12 +2,12 @@
  * @fileoverview Reads GitHub App credentials from the environment.
  */
 
-import {readFileSync} from 'node:fs';
-import {homedir} from 'node:os';
-import {resolve} from 'node:path';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 
-import {errorMessage, systemErrorCode} from './errors.ts';
-import {DEFAULT_API_VERSION} from './github.ts';
+import { errorMessage, systemErrorCode } from './errors.ts';
+import { DEFAULT_API_VERSION } from './github.ts';
 
 /** Credentials and endpoint settings shared by every check. */
 export interface Config {
@@ -41,7 +41,10 @@ function normalizePrivateKey(raw: string): string {
   try {
     return readFileSync(path, 'utf8');
   } catch (error) {
-    const reason = systemErrorCode(error) === 'ENOENT' ? 'no such file' : errorMessage(error);
+    const reason =
+      systemErrorCode(error) === 'ENOENT'
+        ? 'no such file'
+        : errorMessage(error);
     throw new ConfigError(
       `GITHUB_APP_PRIVATE_KEY is neither a readable file path nor a PEM block ` +
         `(tried ${path}: ${reason})`,
@@ -63,7 +66,9 @@ export function expandTilde(raw: string): string {
     return resolve(homedir(), raw.slice(2));
   }
   if (raw.startsWith('~')) {
-    throw new ConfigError(`GITHUB_APP_PRIVATE_KEY uses an unsupported "~user" form: ${raw}`);
+    throw new ConfigError(
+      `GITHUB_APP_PRIVATE_KEY uses an unsupported "~user" form: ${raw}`,
+    );
   }
   return resolve(raw);
 }
@@ -115,7 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     appId: required(env, 'GITHUB_APP_ID'),
     privateKeyPem: normalizePrivateKey(required(env, 'GITHUB_APP_PRIVATE_KEY')),
     timeoutMs: Number(env.GITHUB_TIMEOUT_MS?.trim() || 15000),
-    ...(installationId ? {installationId} : {}),
+    ...(installationId ? { installationId } : {}),
   };
 
   if (!Number.isFinite(config.timeoutMs) || config.timeoutMs <= 0) {

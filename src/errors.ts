@@ -20,6 +20,6 @@ export function systemErrorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null || !('code' in error)) {
     return undefined;
   }
-  const {code} = error;
+  const { code } = error;
   return typeof code === 'string' ? code : undefined;
 }

@@ -10,13 +10,17 @@
   "scripts": {
     "check": "node --env-file-if-exists=.env src/index.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
   },
   "dependencies": {
     "jose": "^6.0.11"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@types/node": "^24.10.1",
     "typescript": "^5.9.3"
-  }
+  },
+  "packageManager": "pnpm@10.16.1"
 }
