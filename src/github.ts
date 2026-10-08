@@ -4,12 +4,15 @@
 
 import {createPrivateKey} from 'node:crypto';
 
-import {SignJWT, importPKCS8} from 'jose';
+import {SignJWT} from 'jose';
 
 import {errorMessage, systemErrorCode} from './errors.ts';
 
 /** The newest REST API version published by GitHub. */
 export const DEFAULT_API_VERSION = '2026-03-10';
+
+/** Lifetime of the app JWT in seconds (GitHub's maximum is 10 minutes). */
+export const JWT_TTL_SECONDS = 540;
 
 /** Endpoint details shared by every request. */
 export interface ApiEndpoint {
@@ -38,7 +41,23 @@ export interface AppInfo {
   id: number;
   name: string;
   slug: string;
-  owner: {login: string};
+  owner: AccountRef | null;
+}
+
+/**
+ * A GitHub account or enterprise.
+ *
+ * Ordinary accounts expose `login`; enterprise-owned apps expose the owner as
+ * an enterprise object that only has `slug`.
+ */
+export interface AccountRef {
+  login?: string;
+  slug?: string;
+}
+
+/** The display name of an account, preferring `login` over the enterprise `slug`. */
+export function accountName(account: AccountRef | null | undefined): string {
+  return account?.login ?? account?.slug ?? '(unknown)';
 }
 
 /**
@@ -49,7 +68,7 @@ export interface AppInfo {
  */
 export interface Installation {
   id: number;
-  account: {login: string};
+  account: AccountRef;
   repository_selection: string;
   permissions: Record<string, string>;
 }
@@ -68,7 +87,7 @@ export interface InstallationToken {
   repository_selection: string;
 }
 
-/** One page of `GET /installation/repos`. */
+/** One page of `GET /installation/repositories`. */
 interface InstallationRepos {
   total_count: number;
   repositories: Array<{full_name: string}>;
@@ -77,8 +96,10 @@ interface InstallationRepos {
 /** The decoded body of a successful API call. */
 interface ApiResponse<T> {
   data: T;
-  headers: Headers;
 }
+
+/** Safety cap so a malfunctioning server cannot page forever. */
+const MAX_PAGINATION_PAGES = 1000;
 
 /** Every repository reachable by an installation. */
 interface RepositoryList {
@@ -96,17 +117,15 @@ interface RequestOptions {
 /**
  * Signs an RS256 JWT that authenticates as the app identified by `appId`.
  *
- * Both PKCS#8 and PKCS#1 PEM blocks are accepted.
+ * Both PKCS#8 and PKCS#1 PEM blocks are accepted, and jose signs the node
+ * `KeyObject` produced by `createPrivateKey` directly.
  */
 export async function createAppJwt(
   privateKeyPem: string,
   appId: string,
-  ttlSeconds = 540,
+  ttlSeconds = JWT_TTL_SECONDS,
 ): Promise<string> {
-  const normalized = createPrivateKey(privateKeyPem.trim())
-    .export({type: 'pkcs8', format: 'pem'})
-    .toString();
-  const key = await importPKCS8(normalized, 'RS256');
+  const key = createPrivateKey(privateKeyPem.trim());
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({})
     .setProtectedHeader({alg: 'RS256', typ: 'JWT'})
@@ -196,7 +215,7 @@ export async function apiRequest<T>(
   // The endpoint contract is expressed by the caller's type argument; the body
   // itself is unvalidated JSON, so no runtime check can confirm it beyond the
   // status code check above.
-  return {data: parsed as T, headers: response.headers};
+  return {data: parsed as T};
 }
 
 /**
@@ -216,6 +235,9 @@ export async function listApiVersions(endpoint: ApiEndpoint): Promise<string[]> 
 
 /**
  * Lists every repository an installation can access, following pagination.
+ *
+ * Paging continues until `total_count` is collected and fails loudly if a
+ * server stops advancing past `MAX_PAGINATION_PAGES` pages.
  */
 export async function listInstallationRepos(
   endpoint: ApiEndpoint,
@@ -223,7 +245,8 @@ export async function listInstallationRepos(
 ): Promise<RepositoryList> {
   const repositories: string[] = [];
   let totalCount = 0;
-  for (let page = 1; page <= 1000; page += 1) {
+  let page = 1;
+  for (;;) {
     const {data} = await apiRequest<InstallationRepos>(
       endpoint,
       `/installation/repositories?per_page=100&page=${page}`,
@@ -231,8 +254,15 @@ export async function listInstallationRepos(
     );
     totalCount = data.total_count;
     repositories.push(...data.repositories.map((repository) => repository.full_name));
-    if (data.repositories.length < 100 || repositories.length >= totalCount) {
+    if (repositories.length >= totalCount) {
       break;
+    }
+    page += 1;
+    if (page > MAX_PAGINATION_PAGES) {
+      throw new Error(
+        `pagination did not finish after ${MAX_PAGINATION_PAGES} pages ` +
+          `(expected ${totalCount} repositories, got ${repositories.length})`,
+      );
     }
   }
   return {repositories, totalCount};

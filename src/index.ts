@@ -2,10 +2,14 @@
  * @fileoverview Checks a GitHub App credential set one step at a time.
  */
 
+import {pathToFileURL} from 'node:url';
+
 import {ConfigError, loadConfig, type Config} from './config.ts';
 import {errorMessage} from './errors.ts';
 import {
   GitHubApiError,
+  JWT_TTL_SECONDS,
+  accountName,
   apiRequest,
   createAppJwt,
   listApiVersions,
@@ -18,7 +22,7 @@ import {
 type Status = 'ok' | 'fail' | 'warn' | 'skip';
 
 /** Produces a hint for a failed check. */
-type HintFn = (error: unknown, config: Config) => string;
+export type HintFn = (error: unknown, config: Config) => string;
 
 /** Options controlling how a step is run and reported. */
 interface StepOptions {
@@ -27,7 +31,7 @@ interface StepOptions {
 }
 
 /** The outcome recorded for a single check. */
-interface CheckResult {
+export interface CheckResult {
   name: string;
   status: Status;
   detail: string;
@@ -54,13 +58,6 @@ interface StepFailure {
 
 type StepResult<T> = StepSuccess<T> | StepFailure;
 
-const JSON_OUTPUT = process.argv.includes('--json');
-
-function print(line: string): void {
-  if (JSON_OUTPUT) return;
-  console.log(line);
-}
-
 /** Formats a caught value, including HTTP details for API failures. */
 function describe(error: unknown): string {
   if (error instanceof GitHubApiError && error.status > 0) {
@@ -71,21 +68,21 @@ function describe(error: unknown): string {
 }
 
 /** Formats a permissions map as `name=value` pairs. */
-function formatPermissions(permissions: Record<string, string>): string {
+export function formatPermissions(permissions: Record<string, string>): string {
   const pairs = Object.entries(permissions).map(([key, value]) => `${key}=${value}`);
   return pairs.length > 0 ? pairs.join(', ') : '(none)';
 }
 
 /** Describes an installation, including its granted permissions. */
-function describeInstallation(entry: Installation): string {
+export function describeInstallation(entry: Installation): string {
   return (
-    `installation ${entry.id} on ${entry.account.login}, ` +
+    `installation ${entry.id} on ${accountName(entry.account)}, ` +
     `selection=${entry.repository_selection}, perms: ${formatPermissions(entry.permissions)}`
   );
 }
 
 /** Explains how to fix a failed check. */
-function hintFor(error: unknown, config: Config): string {
+export function hintFor(error: unknown, config: Config): string {
   if (error instanceof GitHubApiError) {
     switch (error.status) {
       case 0:
@@ -97,7 +94,7 @@ function hintFor(error: unknown, config: Config): string {
       case 403:
         return `forbidden - ${error.message}. Check the app's permissions and whether SAML SSO requires this app to be authorized`;
       case 404:
-        return `not found on ${config.host} - wrong id, or the app is not installed here. For GHE confirm GITHUB_HOST and the /api/v3 prefix`;
+        return `not found on ${config.host} - wrong id, or the app is not installed here. For GHES check GITHUB_HOST and the /api/v3 mount point; GHE.com data-residency hosts answer on api.<host>`;
       case 410:
         return `the app was deleted, or GITHUB_API_VERSION=${config.apiVersion} is no longer supported - check GET /versions for the supported set`;
       default:
@@ -111,12 +108,12 @@ function hintFor(error: unknown, config: Config): string {
 }
 
 /** Hints for failures while signing the app JWT. */
-function jwtHint(): string {
+export function jwtHint(): string {
   return `the private key could not be parsed as a PKCS#8/RSA PEM - include the full -----BEGIN/END----- block, un-escape any \\n, and check the file was not truncated`;
 }
 
 /** Hints for failures while authenticating as the app. */
-function appHint(error: unknown, config: Config): string {
+export function appHint(error: unknown, config: Config): string {
   if (error instanceof GitHubApiError && error.status === 404) {
     return `GITHUB_APP_ID and the private key are not a recognised pair - confirm the app id and that this .pem is the key GitHub generated for this exact app (regenerate the key if unsure)`;
   }
@@ -124,15 +121,26 @@ function appHint(error: unknown, config: Config): string {
 }
 
 /** Hints for the optional `GET /versions` check. */
-function versionsHint(error: unknown, config: Config): string {
+export function versionsHint(error: unknown, config: Config): string {
   if (error instanceof GitHubApiError && error.status === 404) {
     return `this host does not expose GET /versions (normal on some GHES versions) - check the GHES release notes for which REST API versions it supports`;
   }
   return hintFor(error, config);
 }
 
-/** Runs every check, returning the process exit code. */
-async function main(): Promise<number> {
+/**
+ * Runs every check, returning the process exit code.
+ *
+ * `argv` holds the process arguments including the program name, so the module
+ * stays importable (the `--json` flag is read here, not at module load).
+ */
+export async function main(argv: string[]): Promise<number> {
+  const jsonOutput = argv.includes('--json');
+  const print = (line: string): void => {
+    if (jsonOutput) return;
+    console.log(line);
+  };
+
   let config: Config;
   try {
     config = loadConfig();
@@ -190,12 +198,12 @@ async function main(): Promise<number> {
     'create app JWT (validates private key)',
     async () => {
       const token = await createAppJwt(config.privateKeyPem, config.appId);
-      return {detail: `RS256 JWT minted, iss=${config.appId}, ttl=9m`, value: token};
+      return {detail: `RS256 JWT minted, iss=${config.appId}, ttl=${JWT_TTL_SECONDS / 60}m`, value: token};
     },
     {hint: jwtHint},
   );
   if (!jwt.ok) {
-    return finish(config, results, failed);
+    return finish(config, results, failed, jsonOutput);
   }
 
   await step(
@@ -223,14 +231,14 @@ async function main(): Promise<number> {
         token: jwt.value,
       });
       return {
-        detail: `name=${data.name} slug=${data.slug} owner=${data.owner.login} id=${data.id}`,
+        detail: `name=${data.name} slug=${data.slug} owner=${accountName(data.owner)} id=${data.id}`,
         value: data.id,
       };
     },
     {hint: appHint},
   );
   if (!app.ok) {
-    return finish(config, results, failed);
+    return finish(config, results, failed, jsonOutput);
   }
 
   const installation = await step('resolve installation', async () => {
@@ -255,7 +263,7 @@ async function main(): Promise<number> {
     if (chosen === undefined) {
       throw new GitHubApiError(404, 'the app has no installations on this host');
     }
-    const others = remaining.map((entry) => `${entry.id}@${entry.account.login}`);
+    const others = remaining.map((entry) => `${entry.id}@${accountName(entry.account)}`);
     const suffix = others.length > 0 ? ` (other installations: ${others.join(', ')})` : '';
     return {
       detail: `${describeInstallation(chosen)}${suffix} - set GITHUB_INSTALLATION_ID to pick another`,
@@ -263,7 +271,7 @@ async function main(): Promise<number> {
     };
   });
   if (!installation.ok) {
-    return finish(config, results, failed);
+    return finish(config, results, failed, jsonOutput);
   }
 
   const token = await step('mint installation token', async () => {
@@ -278,7 +286,7 @@ async function main(): Promise<number> {
     };
   });
   if (!token.ok) {
-    return finish(config, results, failed);
+    return finish(config, results, failed, jsonOutput);
   }
 
   await step('use installation token (GET /installation/repositories)', async () => {
@@ -291,14 +299,19 @@ async function main(): Promise<number> {
     };
   });
 
-  return finish(config, results, failed);
+  return finish(config, results, failed, jsonOutput);
 }
 
 /** Prints the final summary and returns the process exit code. */
-function finish(config: Config, results: CheckResult[], failed: boolean): number {
+export function finish(
+  config: Config,
+  results: CheckResult[],
+  failed: boolean,
+  jsonOutput: boolean,
+): number {
   const ok = !failed;
   const warnings = results.filter((result) => result.status === 'warn').length;
-  if (JSON_OUTPUT) {
+  if (jsonOutput) {
     console.log(
       JSON.stringify(
         {
@@ -325,4 +338,8 @@ function finish(config: Config, results: CheckResult[], failed: boolean): number
   return ok ? 0 : 1;
 }
 
-process.exitCode = await main();
+const isEntryPoint =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntryPoint) {
+  process.exitCode = await main(process.argv);
+}

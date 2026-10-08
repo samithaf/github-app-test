@@ -25,7 +25,8 @@ cp .env.example .env
 
 `GITHUB_APP_PRIVATE_KEY` accepts either a path to the `.pem` file or the PEM contents
 inline (literal `\n` sequences are unwrapped automatically). Both PKCS#8
-(`BEGIN PRIVATE KEY`) and PKCS#1 (`BEGIN RSA PRIVATE KEY`) keys are supported.
+(`BEGIN PRIVATE KEY`) and PKCS#1 (`BEGIN RSA PRIVATE KEY`) keys are supported,
+and a leading `~/` is expanded to your home directory.
 
 ## Run
 
@@ -51,14 +52,23 @@ set `GITHUB_API_VERSION` (e.g. `2022-11-28`); a value that is not supported is
 reported as a warning against `GET /versions`. The `410 Gone` error means the
 resource is gone, or the configured API version has closed down.
 
+Host detection:
+
+- `github.com` → `https://api.github.com`
+- `*.ghe.com` (GitHub Enterprise Cloud with data residency) → `https://api.<host>` (no `/api/v3`)
+- anything else is treated as GitHub Enterprise Server → `https://<host>/api/v3`
+
+`GITHUB_HOST` must be a bare hostname (`host` or `host:port`); paths such as
+`host/api/v3` are rejected because the mount point is added automatically.
+
 ## Environment variables
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `GITHUB_APP_ID` | yes | App id from the app settings page |
-| `GITHUB_APP_PRIVATE_KEY` | yes | Path to the `.pem`, or the PEM contents inline |
+| `GITHUB_APP_PRIVATE_KEY` | yes | Path to the `.pem` (a leading `~/` is expanded), or the PEM contents inline |
 | `GITHUB_INSTALLATION_ID` | no | Installation to test; otherwise the first installation is used |
-| `GITHUB_HOST` | no | `github.com` (default) or a GHE host such as `github.acme.com`; `http://` is honoured if given (useful against a local mock) |
+| `GITHUB_HOST` | no | `github.com` (default), a GHE host such as `github.acme.com`, or a `*.ghe.com` data-residency tenant; `http://` is honoured if given (useful against a local mock) |
 | `GITHUB_API_VERSION` | no | REST API version header, default `2026-03-10`; a date such as `2022-11-28` |
 | `GITHUB_TIMEOUT_MS` | no | Per-request timeout, default `15000` |
 
@@ -72,12 +82,26 @@ resource is gone, or the configured API version has closed down.
 
 ## Failure hints
 
+Every failed step prints a `hint:` aimed at the most likely cause. The hints are
+generated in `src/index.ts` (`hintFor` and friends), so the printed guidance is
+always in sync with the code. The common ones:
+
 - `HTTP 401` on `GET /app` - the JWT itself was rejected: clock skew, or the PEM is not a valid private key.
 - `HTTP 404: Integration not found` on `GET /app` - the app id and private key are not a recognised pair.
 - `HTTP 404` on the installation step - wrong `GITHUB_INSTALLATION_ID`, or the app is not installed on that host.
 - `HTTP 403` - the app lacks the required permissions, or SAML SSO has not authorized the app.
 - `HTTP 410` - the app was deleted, or the configured `GITHUB_API_VERSION` is no longer supported (check `GET /versions`).
 - network errors - check `GITHUB_HOST`, DNS/VPN, and TLS (GHE often uses an internal CA).
+
+## Tests
+
+```bash
+npm run typecheck   # strict tsc --noEmit
+npm test            # node:test suite (config parsing, JWT, pagination, hint selection,
+                    # and a full end-to-end run against an in-process mock host)
+```
+
+Run both in CI on every push (see `.github/workflows/ci.yml`).
 
 ## Style
 

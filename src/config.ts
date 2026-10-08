@@ -37,7 +37,7 @@ function normalizePrivateKey(raw: string): string {
   if (raw.includes('-----BEGIN')) {
     return raw.includes('\\n') ? raw.replace(/\\n/g, '\n') : raw;
   }
-  const path = raw.startsWith('~') ? resolve(homedir(), raw.slice(1)) : resolve(raw);
+  const path = expandTilde(raw);
   try {
     return readFileSync(path, 'utf8');
   } catch (error) {
@@ -50,6 +50,43 @@ function normalizePrivateKey(raw: string): string {
 }
 
 /**
+ * Expands a leading `~` to the home directory, for example `~/key.pem`.
+ *
+ * `~` alone is the home directory itself; `~user/...` other-user forms are
+ * rejected because `homedir()` only knows the current user.
+ */
+export function expandTilde(raw: string): string {
+  if (raw === '~') {
+    return homedir();
+  }
+  if (raw.startsWith('~/')) {
+    return resolve(homedir(), raw.slice(2));
+  }
+  if (raw.startsWith('~')) {
+    throw new ConfigError(`GITHUB_APP_PRIVATE_KEY uses an unsupported "~user" form: ${raw}`);
+  }
+  return resolve(raw);
+}
+
+/**
+ * Builds the REST base URL for a host.
+ *
+ * `github.com` uses `api.github.com`. GitHub Enterprise Cloud data-residency
+ * tenants (hosts under `*.ghe.com`) answer on an `api.` subdomain without the
+ * `/api/v3` prefix. Everything else is assumed to be a GitHub Enterprise Server
+ * with the `/api/v3` mount point.
+ */
+function apiBaseFor(scheme: string, host: string): string {
+  if (host === 'github.com') {
+    return 'https://api.github.com';
+  }
+  if (host.endsWith('.ghe.com')) {
+    return `https://api.${host}`;
+  }
+  return `${scheme}://${host}/api/v3`;
+}
+
+/**
  * Builds the configuration from the environment, or throws `ConfigError`.
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -59,6 +96,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const installationId = env.GITHUB_INSTALLATION_ID?.trim();
   const apiVersion = env.GITHUB_API_VERSION?.trim() || DEFAULT_API_VERSION;
 
+  if (host.includes('/')) {
+    throw new ConfigError(
+      `GITHUB_HOST must be a hostname, got "${rawHost}" (the /api/v3 path is added automatically)`,
+    );
+  }
+
   if (!/^\d{4}-\d{2}-\d{2}$/.test(apiVersion)) {
     throw new ConfigError(
       `GITHUB_API_VERSION must be a date such as ${DEFAULT_API_VERSION} (got ${apiVersion})`,
@@ -67,7 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   const config: Config = {
     host,
-    apiBase: host === 'github.com' ? 'https://api.github.com' : `${scheme}://${host}/api/v3`,
+    apiBase: apiBaseFor(scheme, host),
     apiVersion,
     appId: required(env, 'GITHUB_APP_ID'),
     privateKeyPem: normalizePrivateKey(required(env, 'GITHUB_APP_PRIVATE_KEY')),
